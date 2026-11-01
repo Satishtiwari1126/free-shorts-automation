@@ -105,7 +105,7 @@ def commons_image(query, number):
             meta = info.get("extmetadata", {})
             artist = re.sub("<[^>]+>", "", meta.get("Artist", {}).get("value", "Unknown"))
             license_name = meta.get("LicenseShortName", {}).get("value", "See source page")
-            page_url = page.get("canonicalurl", "")
+            page_url = "https://commons.wikimedia.org/wiki/" + quote(page.get("title", "").replace(" ", "_"))
             return path, f"{page.get('title','Wikimedia Commons')} — {artist} — {license_name} — {page_url}"
         except Exception:
             continue
@@ -162,7 +162,7 @@ def create_video(script):
     concat = WORK / "concat.txt"
     concat.write_text("".join(f"file '{p.resolve()}'\n" for p in clips), encoding="utf-8")
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat),
-         "-c", "copy", "-movflags", "+faststart", str(OUT)])
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(OUT)])
     return credits
 
 def upload_youtube(title, description):
