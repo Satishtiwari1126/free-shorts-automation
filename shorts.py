@@ -57,8 +57,17 @@ make the Short a clearly framed explainer about what the headline says and what 
 unknown. No misinformation, medical advice, investment advice, or political persuasion.
 Return ONLY valid JSON with this schema:
 {{"title":"under 70 characters","description":"2 short sentences plus source URL and hashtags",
-"scenes":[{{"voice":"one spoken sentence, 8-18 words","visual":"2-5 simple visual search words"}}]}}
-Provide exactly 5 scenes. Make the opening sentence a strong hook, keep language clear,
+"scenes":[{{"voice":"one spoken sentence, 8-18 words",
+"visual":"a concrete shot description showing the exact subject and action described in this sentence",
+"search_queries":["specific Wikimedia image search phrase 1","specific phrase 2","specific phrase 3"],
+"on_screen_label":"short 2-5 word scene label"}}]}}
+Provide exactly 5 scenes. Every visual MUST literally depict the sentence it accompanies:
+name the visible subject, action, setting, and important object. Never use vague terms
+such as technology, world, news, future, or science by themselves. Do not reuse one
+generic visual across scenes. If the sentence describes a process, choose an image of
+that exact process; if it describes a person, place, object, or event, search for that
+specific thing. Search queries must be concrete Wikimedia Commons subjects, not the
+whole story title. Make the opening sentence a strong hook, keep language clear,
 and end with a question. Do not mention that you are an AI.
 
 TREND: {story['trend']}
@@ -79,25 +88,48 @@ SOURCE: {story['source']} {story['url']}
         raise RuntimeError("AI response did not contain exactly five scenes.")
     return result
 
-def commons_image(query, number):
+def commons_image(scene, number):
+    # Search for the exact visual requested for this narration beat.
+    visual = (scene.get("visual") or "").strip()
+    queries = scene.get("search_queries") or []
+    queries = [q.strip() for q in queries if isinstance(q, str) and q.strip()]
+    if visual:
+        queries.insert(0, visual)
+    queries = list(dict.fromkeys(queries))[:4]
+    if not queries:
+        queries = ["documentary photograph " + (scene.get("voice") or "")]
     api = "https://commons.wikimedia.org/w/api.php"
-    params = {
-        "action": "query", "generator": "search",
-        "gsrsearch": query + " filetype:bitmap",
-        "gsrnamespace": 6, "gsrlimit": 8,
-        "prop": "imageinfo", "iiprop": "url|extmetadata",
-        "iiurlwidth": 1200, "format": "json"
-    }
-    r = requests.get(api, params=params, headers={"User-Agent": "FreeShortsBot/1.0 (educational video automation)"}, timeout=40)
-    r.raise_for_status()
-    pages = r.json().get("query", {}).get("pages", {})
-    for page in pages.values():
+    headers = {"User-Agent": "FreeShortsBot/1.0 (educational video automation)"}
+    candidates = []
+    for query in queries:
+        params = {
+            "action": "query", "generator": "search",
+            "gsrsearch": query + " filetype:bitmap",
+            "gsrnamespace": 6, "gsrlimit": 12,
+            "prop": "imageinfo", "iiprop": "url|extmetadata",
+            "iiurlwidth": 1400, "format": "json"
+        }
+        r = requests.get(api, params=params, headers=headers, timeout=40)
+        r.raise_for_status()
+        pages = r.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            title = page.get("title", "")
+            tokens = set(re.findall(r"[a-z0-9]{3,}", (query + " " + visual).lower()))
+            title_tokens = set(re.findall(r"[a-z0-9]{3,}", title.lower()))
+            score = len(tokens & title_tokens)
+            candidates.append((score, page))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    seen = set()
+    for score, page in candidates:
+        if page.get("title") in seen:
+            continue
+        seen.add(page.get("title"))
         info = (page.get("imageinfo") or [{}])[0]
         url = info.get("thumburl") or info.get("url")
         if not url:
             continue
         try:
-            image = requests.get(url, timeout=40, headers={"User-Agent": "FreeShortsBot/1.0"}).content
+            image = requests.get(url, timeout=40, headers=headers).content
             path = WORK / f"source_{number}.jpg"
             path.write_bytes(image)
             with Image.open(path) as im:
@@ -149,7 +181,7 @@ def create_video(script):
         voice = scene["voice"].strip()
         audio = WORK / f"voice_{i}.wav"
         run(["espeak-ng", "-v", "en-us", "-s", "158", "-w", str(audio), voice])
-        image, credit = commons_image(scene.get("visual", "news topic"), i)
+        image, credit = commons_image(scene, i)
         if credit:
             credits.append(credit)
         card = make_card(image, voice, i)
