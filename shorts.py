@@ -182,6 +182,14 @@ def create_video(script):
         audio = WORK / f"voice_{i}.wav"
         run(["espeak-ng", "-v", "en-us", "-s", "158", "-w", str(audio), voice])
         image, credit = commons_image(scene, i)
+        if not image:
+            # Never silently substitute a generic background for a scene that
+            # could not find a subject-specific visual.
+            raise RuntimeError(
+                f"No matching visual found for scene {i + 1}: "
+                f"{scene.get('visual', voice)}. Refusing to render/publish a mismatched Short."
+            )
+        log(f"Scene {i + 1} visual: {scene.get('visual', 'specific subject image')}")
         if credit:
             credits.append(credit)
         card = make_card(image, voice, i)
