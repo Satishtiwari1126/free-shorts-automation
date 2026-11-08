@@ -3,7 +3,8 @@ name: Daily YouTube Short
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 7 * * *" # 16:00 Korea time
+    - cron: "0 1 * * *" # 10:00 Korea time
+    - cron: "0 10 * * *" # 19:00 Korea time
 
 permissions:
   contents: read
