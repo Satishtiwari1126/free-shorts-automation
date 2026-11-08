@@ -27,25 +27,39 @@ def get_topic():
         "https://trends.google.com/trending/rss?geo=KR",
     ]
     seen = set()
+    titles = []
     for url in feeds:
         feed = feedparser.parse(url)
         for entry in feed.entries:
             title = (entry.get("title") or "").strip()
             if title and title.lower() not in seen:
                 seen.add(title.lower())
-                news_url = "https://news.google.com/rss/search?q=" + quote(title) + "&hl=en-US&gl=US&ceid=US:en"
-                news = feedparser.parse(news_url)
-                if news.entries:
-                    item = news.entries[0]
-                    summary = re.sub("<[^>]+>", " ", item.get("summary", ""))
-                    summary = re.sub(r"\s+", " ", summary).strip()[:1800]
-                    return {
-                        "trend": title,
-                        "headline": item.get("title", title),
-                        "summary": summary,
-                        "url": item.get("link", ""),
-                        "source": item.get("source", {}).get("title", "Google News")
-                    }
+                titles.append(title)
+
+    if not titles:
+        raise RuntimeError("Google Trends returned no current topics.")
+
+    # Use different positions in the trend list for the two daily upload slots.
+    # 01:00 UTC = 10:00 Korea; 10:00 UTC = 19:00 Korea.
+    slot_offset = 0 if time.gmtime().tm_hour < 6 else 4
+    ordered_titles = titles[slot_offset:] + titles[:slot_offset]
+
+    for title in ordered_titles:
+        news_url = "https://news.google.com/rss/search?q=" + quote(title) + "&hl=en-US&gl=US&ceid=US:en"
+        news = feedparser.parse(news_url)
+        if news.entries:
+            item = news.entries[0]
+            summary = re.sub("<[^>]+>", " ", item.get("summary", ""))
+            summary = re.sub(r"\\s+", " ", summary).strip()[:1800]
+            if not summary:
+                continue
+            return {
+                "trend": title,
+                "headline": item.get("title", title),
+                "summary": summary,
+                "url": item.get("link", ""),
+                "source": item.get("source", {}).get("title", "Google News")
+            }
     raise RuntimeError("No usable trending story was returned by the feeds.")
 
 def make_script(story, api_key):
