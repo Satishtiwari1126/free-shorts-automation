@@ -154,15 +154,44 @@ def create_video(script):
             credits.append(credit)
         card = make_card(image, voice, i)
         clip = WORK / f"clip_{i}.mp4"
+
+        # Turn each sourced image into a moving scene instead of a static slideshow.
+        # A slow push-in, subtle horizontal drift, richer contrast, and short fades
+        # create motion without any paid video-generation service.
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(audio)],
+            check=True, capture_output=True, text=True
+        )
+        scene_seconds = max(0.5, float(probe.stdout.strip()))
+        fade_start = max(0, scene_seconds - 0.35)
+        zoom = (
+            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,"
+            "zoompan=z='min(zoom+0.0007,1.08)':"
+            "x='iw/2-(iw/zoom/2)+sin(on/90)*8':"
+            "y='ih/2-(ih/zoom/2)+cos(on/110)*8':"
+            "d=1:s=1080x1920:fps=30,"
+            "eq=saturation=1.12:contrast=1.05,"
+            f"fade=t=in:st=0:d=0.35,fade=t=out:st={fade_start:.3f}:d=0.35"
+        )
+        audio_fades = (
+            "afade=t=in:st=0:d=0.12,"
+            f"afade=t=out:st={fade_start:.3f}:d=0.20"
+        )
         run(["ffmpeg", "-y", "-loop", "1", "-i", str(card), "-i", str(audio),
-             "-c:v", "libx264", "-tune", "stillimage", "-vf", "scale=1080:1920,fps=30",
-             "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p",
+             "-vf", zoom, "-af", audio_fades, "-c:v", "libx264",
+             "-preset", "veryfast", "-crf", "21", "-c:a", "aac",
+             "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p",
              "-movflags", "+faststart", str(clip)])
         clips.append(clip)
+
     concat = WORK / "concat.txt"
-    concat.write_text("".join(f"file '{p.resolve()}'\n" for p in clips), encoding="utf-8")
+    concat.write_text("".join(f"file '{p.resolve()}'\\n" for p in clips), encoding="utf-8")
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat),
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(OUT)])
+         "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast",
+         "-crf", "22", "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart", str(OUT)])
     return credits
 
 def upload_youtube(title, description):
